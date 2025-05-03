@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kanban con Login</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 p-4">
+  <!-- Sección de Login / Registro -->
+  <div id="authSection" class="max-w-md mx-auto bg-white rounded shadow p-6 mt-10">
+    <h2 class="text-xl mb-4 text-center">Iniciar sesión / Registro</h2>
+    <input id="username" placeholder="Usuario" class="w-full mb-2 p-2 border rounded" />
+    <input id="password" placeholder="Contraseña" type="password" class="w-full mb-4 p-2 border rounded" />
+    <div class="flex justify-between">
+      <button onclick="login()" class="bg-blue-500 text-white px-4 py-2 rounded">Entrar</button>
+      <button onclick="register()" class="bg-green-500 text-white px-4 py-2 rounded">Registrarse</button>
+    </div>
+    <p id="authMessage" class="text-red-600 mt-4 text-center"></p>
+  </div>
+
+  <!-- Sección principal de la app Kanban -->
+  <div id="appSection" class="hidden">
+    <div class="flex justify-between items-center mb-4">
+      <h1 class="text-xl font-bold">📋 Tablero Kanban</h1>
+      <button onclick="logout()" class="text-red-600">Cerrar sesión</button>
+    </div>
+    <div id="boardControls" class="mb-4 flex flex-wrap gap-2 items-center">
+      <select id="boardSelector" class="p-2 rounded border" onchange="changeBoard(this.value)"></select>
+      <button onclick="createBoard()" class="text-sm text-blue-600 hover:underline">+ Crear tablero</button>
+      <button onclick="deleteBoard()" class="text-sm text-red-600 hover:underline">🗑️ Borrar tablero</button>
+    </div>
+    <div id="board" class="grid grid-cols-1 sm:grid-cols-3 gap-4"></div>
+    <p id="message" class="text-center text-green-600 mt-4"></p>
+  </div>
+
+  <script>
+    let currentBoard = 1;
+
+    async function login() {
+      const res = await fetch('login.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: document.getElementById('username').value,
+          password: document.getElementById('password').value
+        })
+      });
+      const result = await res.json();
+      if (result.success) {
+        showApp();
+      } else {
+        document.getElementById('authMessage').innerText = result.error || 'Login fallido';
+      }
+    }
+
+    async function register() {
+      const res = await fetch('register.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: document.getElementById('username').value,
+          password: document.getElementById('password').value
+        })
+      });
+      const result = await res.json();
+      if (result.success) {
+        document.getElementById('authMessage').innerText = 'Registro exitoso. Ahora puedes iniciar sesión.';
+      } else {
+        document.getElementById('authMessage').innerText = result.error || 'Error al registrarse';
+      }
+    }
+
+    async function logout() {
+      await fetch('logout.php');
+      showAuth();
+    }
+
+    function showApp() {
+      document.getElementById('authSection').classList.add('hidden');
+      document.getElementById('appSection').classList.remove('hidden');
+      loadBoards();
+    }
+
+    function showAuth() {
+      document.getElementById('authSection').classList.remove('hidden');
+      document.getElementById('appSection').classList.add('hidden');
+    }
+
+    async function checkLogin() {
+      const res = await fetch('auth.php');
+      if (res.ok) showApp();
+      else showAuth();
+    }
+
+    function showMessage(msg) {
+      document.getElementById('message').innerText = msg;
+      setTimeout(() => document.getElementById('message').innerText = '', 3000);
+    }
+
+    async function loadBoards() {
+      const res = await fetch('api/get_boards.php');
+      const boards = await res.json();
+      const sel = document.getElementById('boardSelector');
+      sel.innerHTML = '';
+      boards.forEach(b => {
+        const opt = document.createElement('option');
+        opt.value = b.id;
+        opt.textContent = b.name;
+        if (b.id == currentBoard) opt.selected = true;
+        sel.appendChild(opt);
+      });
+      if (boards.length > 0) {
+        currentBoard = boards[0].id;
+        loadTasks();
+      } else {
+        document.getElementById('board').innerHTML = '<p class="text-center">Sin tableros</p>';
+      }
+    }
+
+    async function createBoard() {
+      const name = prompt('Nombre del tablero:');
+      if (!name) return;
+
+      const res = await fetch('api/add_board.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      });
+
+      const result = await res.json();
+      if (result.success) {
+        alert('Tablero creado');
+        loadBoards();
+      } else {
+        alert(result.error || 'Error al crear tablero');
+      }
+    }
+
+    async function deleteBoard() {
+      if (!confirm('¿Seguro que deseas borrar este tablero y todas sus tareas?')) return;
+      const res = await fetch('api/delete_board.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: currentBoard })
+      });
+      const result = await res.json();
+      if (result.success) {
+        showMessage('Tablero eliminado');
+        loadBoards();
+      } else {
+        showMessage('No se pudo eliminar el tablero');
+      }
+    }
+
+    async function changeBoard(id) {
+      currentBoard = id;
+      loadTasks();
+    }
+
+
+    
+  async function loadTasks() {
+  const res = await fetch(`api/get_tasks.php?board=${currentBoard}`);
+  const tasks = await res.json();
+  const board = document.getElementById('board');
+  const columns = ['Pendiente', 'En progreso', 'Completo'];
+  board.innerHTML = '';
+
+  columns.forEach(status => {
+    const col = document.createElement('div');
+    col.className = 'bg-white rounded shadow p-2 min-h-[200px]';
+    col.setAttribute('data-status', status);
+
+    col.innerHTML = `<h3 class='text-lg font-semibold mb-2'>${status}</h3>`;
+    col.addEventListener('dragover', handleDragOver);
+    col.addEventListener('drop', handleDrop);
+
+    const colTasks = tasks.filter(t => t.status === status);
+
+    colTasks.forEach(t => {
+      console.log("Tarea: ", t);  // Agregar este log para inspeccionar la tarea
+      const card = document.createElement('div');
+      card.className = 'bg-gray-200 p-2 mb-2 rounded flex justify-between items-center';
+      card.setAttribute('draggable', 'true');
+      card.setAttribute('data-task-id', t.id);
+
+      const titleSpan = document.createElement('span');
+      titleSpan.textContent = t.title;
+
+      const buttons = document.createElement('div');
+      buttons.className = 'flex gap-2';
+
+      const editBtn = document.createElement('button');
+      editBtn.textContent = '✏️';
+      editBtn.className = 'text-xs text-blue-600 ml-2';
+      editBtn.onclick = () => editTask(t.id, t.title, t.description, t.due_date);
+
+      const deleteBtn = document.createElement('button');
+      deleteBtn.textContent = '🗑️';
+      deleteBtn.className = 'text-xs text-red-600';
+      deleteBtn.onclick = () => deleteTask(t.id);
+
+      buttons.appendChild(editBtn);
+      buttons.appendChild(deleteBtn);
+
+      card.appendChild(titleSpan);
+      card.appendChild(buttons);
+
+      // Revisa aquí si t.attachments está disponible
+              console.log("Archivos adjuntos: ", t.attachments); // Verifica los archivos adjuntos
+
+      if (t.attachments && t.attachments.length > 0) {
+        console.log("Archivos adjuntos: ", t.attachments); // Verifica los archivos adjuntos
+        const attachmentContainer = document.createElement('div');
+        attachmentContainer.className = 'mt-2 text-sm text-blue-600';
+        t.attachments.forEach(file => {
+          const fileLink = document.createElement('a');
+          fileLink.href = file.url;
+          fileLink.target = '_blank';
+          fileLink.textContent = file.name;
+          attachmentContainer.appendChild(fileLink);
+          attachmentContainer.appendChild(document.createElement('br'));  // Salto de línea entre archivos
+        });
+        card.appendChild(attachmentContainer);
+      }
+
+      card.addEventListener('dragstart', handleDragStart);
+      card.addEventListener('dragend', handleDragEnd);
+
+      col.appendChild(card);
+    });
+
+    const addBtn = document.createElement('button');
+    addBtn.textContent = '+ Agregar';
+    addBtn.className = 'text-blue-600 text-sm';
+    addBtn.onclick = () => addTask(status);
+    col.appendChild(addBtn);
+
+    board.appendChild(col);
+  });
+}
+
+
+
+
+let draggedTaskId = null;
+
+async function deleteTask(id) {
+  if (!confirm('¿Deseas borrar esta tarea?')) return;
+  const res = await fetch('api/delete_task.php', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id })
+  });
+  const result = await res.json();
+  if (result.success) {
+    showMessage('Tarea eliminada');
+    loadTasks();
+  } else {
+    showMessage(result.error || 'No se pudo eliminar la tarea');
+  }
+}
+
+
+
+
+function handleDragStart(event) {
+  draggedTaskId = event.target.getAttribute('data-task-id');
+  event.target.style.opacity = 0.5;
+}
+
+function handleDragOver(event) {
+  event.preventDefault(); // Necesario para permitir el drop
+}
+
+async function handleDrop(event) {
+  event.preventDefault();
+
+  const column = event.currentTarget;
+  const newStatus = column.getAttribute('data-status');
+
+  if (!newStatus || !draggedTaskId) return;
+
+  const res = await fetch('api/update_task_status.php', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      taskId: draggedTaskId,
+      newStatus: newStatus
+    })
+  });
+
+  const result = await res.json();
+  if (result.success) {
+    loadTasks(); // Recarga tareas
+  } else {
+    showMessage('Error al mover la tarea');
+  }
+}
+
+function handleDragEnd(event) {
+  event.target.style.opacity = 1;
+  draggedTaskId = null;
+}
+
+    async function addTask(status) {
+      const title = prompt('Título de la tarea:');
+      if (!title) return;
+      const res = await fetch('api/add_task.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, status, board_id: currentBoard })
+      });
+      const result = await res.json();
+      if (result.success) {
+        showMessage('Tarea agregada');
+        loadTasks();
+      } else {
+        showMessage('Error al agregar tarea');
+      }
+    }
+
+    checkLogin();
+
+let taskBeingEditedId = null;
+
+function editTask(id, currentTitle, currentDescription = '', currentDueDate = '') {
+  taskBeingEditedId = id;  // Guardamos el ID de la tarea para utilizarlo en la subida de archivo
+  
+  // Establecemos el ID de la tarea en el campo oculto
+  document.getElementById('editTaskId').value = id;
+
+  document.getElementById('editTitle').value = currentTitle;
+  document.getElementById('editDescription').value = currentDescription || '';
+  document.getElementById('editDueDate').value = currentDueDate || '';
+  document.getElementById('editModal').classList.remove('hidden');
+
+  // Asignar el ID a la acción del botón "Subir archivo"
+  const saveAttachmentBtn = document.getElementById('saveAttachmentBtn');
+  saveAttachmentBtn.onclick = () => uploadAttachment(id);  // Pasamos el taskId al hacer clic
+}
+
+
+async function saveTaskChanges() {
+  const taskId = document.getElementById('editTaskId').value;  // Obtener el ID de la tarea desde el campo oculto
+  const newTitle = document.getElementById('editTitle').value.trim();
+  const newDescription = document.getElementById('editDescription').value.trim();
+  const newDueDate = document.getElementById('editDueDate').value;
+
+  if (!newTitle || !taskId) return;
+
+  const res = await fetch('api/edit_task.php', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      id: taskId,
+      title: newTitle,
+      description: newDescription,
+      due_date: newDueDate
+    })
+  });
+
+  const result = await res.json();
+  if (result.success) {
+    closeModal();
+    loadTasks();  // Recarga las tareas después de la edición
+  } else {
+    alert('Error al editar la tarea');
+  }
+}
+
+
+
+
+
+
+async function uploadAttachment(taskId) {
+  const fileInput = document.getElementById('taskAttachment');
+  if (!fileInput.files.length) return;
+
+  const formData = new FormData();
+  formData.append('id', taskId);
+  formData.append('attachment', fileInput.files[0]);
+
+  const res = await fetch('api/upload_attachment.php', {
+    method: 'POST',
+    body: formData
+  });
+
+  const result = await res.json();
+  if (!result.success) {
+    showMessage('Error al subir archivo');
+    return;
+  }
+
+  // ✅ Mostrar link del archivo en el modal después de subirlo
+  if (result.url) {
+    const attachmentDiv = document.getElementById('currentAttachment');
+    attachmentDiv.innerHTML = `<a href="${result.url}" target="_blank" class="text-blue-600 underline">Archivo adjunto</a>`;
+  }
+}
+
+
+
+function closeModal() {
+  const modal = document.getElementById('editModal');
+  if (modal) {
+    modal.classList.add('hidden');
+  }
+}
+
+
+
+
+  </script>
+
+<!-- Modal de edición de tarea -->
+<!-- Modal de edición de tarea -->
+<div id="editModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
+  <button class="absolute top-2 right-2 text-gray-500" onclick="closeModal()">✖️</button>
+
+  <div class="bg-white rounded-lg p-6 w-full max-w-md shadow-lg">
+    <h2 class="text-lg font-bold mb-4">Editar Tarea</h2>
+    
+    <!-- Campo oculto para el ID de la tarea -->
+    <input id="editTaskId" type="hidden">
+
+    <input id="editTitle" type="text" class="w-full p-2 border rounded mb-3" placeholder="Título de la tarea">
+    <textarea id="editDescription" class="w-full p-2 border rounded mb-3" placeholder="Descripción"></textarea>
+    <input type="file" id="taskAttachment" class="w-full mb-2">
+    
+    <!-- Botón para subir archivo adjunto -->
+    <button id="saveAttachmentBtn" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Subir archivo</button>
+
+    <input id="editDueDate" type="date" class="w-full p-2 border rounded mb-4">
+
+    <div class="flex justify-end gap-2">
+      <button onclick="closeModal()" class="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400">Cancelar</button>
+      <button onclick="saveTaskChanges()" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Guardar</button>
+    </div>
+  </div>
+</div>
+
+
+
+
+
+</body>
+</html>
